@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CameraPixel</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; color: #fff; font-family: -apple-system, sans-serif; overflow: hidden; height: 100vh; }
+
+#app { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+
+#videoWrapper { flex: 1; position: relative; overflow: hidden; background: #111; }
+#video { width: 100%; height: 100%; object-fit: cover; }
+
+#canvas { display: none; }
+
+#controls { position: absolute; bottom: 40px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+
+#modeBar {
+    display: flex; gap: 4px; background: rgba(0,0,0,0.6); padding: 6px 12px; border-radius: 24px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); flex-wrap: wrap; justify-content: center;
+}
+.modeBtn {
+    padding: 6px 14px; border: none; border-radius: 16px; background: transparent; color: rgba(255,255,255,0.7);
+    font-size: 13px; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+.modeBtn.active { background: #4285F4; color: #fff; font-weight: 600; }
+
+#bottomRow { display: flex; align-items: center; gap: 48px; }
+
+#captureBtn {
+    width: 72px; height: 72px; border-radius: 50%; border: 3px solid #fff; background: transparent;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.1s;
+}
+#captureBtn:active { transform: scale(0.92); }
+#captureInner { width: 60px; height: 60px; border-radius: 50%; background: #fff; }
+#captureBtn.capturing #captureInner { background: rgba(255,255,255,0.4); }
+
+#topBar {
+    position: absolute; top: 0; left: 0; right: 0; padding: 48px 20px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+}
+
+.iconBtn {
+    width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,0.4); border: none;
+    color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+
+#zoomSliderWrap {
+    position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+#zoomSliderWrap span { font-size: 12px; font-weight: 600; }
+#zoomSlider {
+    writing-mode: bt-lr; -webkit-appearance: slider-vertical; width: 200px; height: 4px;
+    transform: rotate(270deg); transform-origin: center;
+}
+
+#resultOverlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92);
+    display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; gap: 20px;
+}
+#resultOverlay.show { display: flex; }
+#resultImg { max-width: 90vw; max-height: 75vh; border-radius: 12px; }
+#resultBtns { display: flex; gap: 16px; }
+.actionBtn {
+    padding: 12px 28px; border: none; border-radius: 24px; font-size: 15px; cursor: pointer;
+    background: #4285F4; color: #fff; font-weight: 600;
+}
+.actionBtn.danger { background: #EA4335; }
+
+#startScreen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a2e;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; z-index: 200;
+}
+#startScreen h1 { font-size: 28px; color: #4285F4; }
+#startScreen p { color: #aaa; text-align: center; max-width: 300px; }
+#startBtn { padding: 16px 48px; border: none; border-radius: 28px; background: #4285F4; color: #fff; font-size: 18px; cursor: pointer; }
+
+@media (max-width: 500px) {
+    .modeBtn { font-size: 11px; padding: 5px 10px; }
+    #modeBar { padding: 4px 8px; gap: 2px; }
+}
+</style>
+</head>
+<body>
+
+<div id="startScreen">
+    <h1>CameraPixel</h1>
+    <p>Google Pixel වගේ quality camera app එකක්. Camera access එකට ඉඩ දෙන්න.</p>
+    <button id="startBtn">Start Camera</button>
+</div>
+
+<div id="app" style="display:none">
+    <div id="videoWrapper">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+
+        <div id="topBar">
+            <button class="iconBtn" id="flashBtn" onclick="toggleFlash()">&#9889;</button>
+            <button class="iconBtn" onclick="switchCamera()">&#8635;</button>
+        </div>
+
+        <div id="zoomSliderWrap">
+            <span id="zoomLabel">1x</span>
+            <input type="range" id="zoomSlider" min="1" max="15" value="1" step="0.1" oninput="setZoom(this.value)">
+        </div>
+    </div>
+
+    <div id="controls">
+        <div id="modeBar" id="modeBar"></div>
+        <div id="bottomRow">
+            <div style="width:48px"></div>
+            <button id="captureBtn" onclick="capture()"><div id="captureInner"></div></button>
+            <div style="width:48px;text-align:center">
+                <button class="iconBtn" style="width:48px;height:48px;font-size:16px" onclick="openGallery()">&#128247;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="resultOverlay" onclick="event.target===this&&closeResult()">
+    <img id="resultImg">
+    <div id="resultBtns">
+        <button class="actionBtn" onclick="downloadPhoto()">Download</button>
+        <button class="actionBtn danger" onclick="closeResult()">Close</button>
+    </div>
+</div>
+
+<script>
+const modes = [
+    { id: 'photo', name: 'Photo' },
+    { id: 'hdr', name: 'HDR+' },
+    { id: 'night', name: 'Night' },
+    { id: 'portrait', name: 'Portrait' },
+    { id: 'astro', name: 'Astro' },
+    { id: 'zoom', name: 'Zoom' },
+];
+
+let stream = null;
+let currentMode = 'photo';
+let currentFacing = 'environment';
+let currentZoom = 1;
+let flashOn = false;
+let lastPhoto = null;
+let modeCounter = 0;
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const zoomSlider = document.getElementById('zoomSlider');
+const zoomLabel = document.getElementById('zoomLabel');
+const modeBar = document.getElementById('modeBar');
+
+modes.forEach(m => {
+    const btn = document.createElement('button');
+    btn.className = 'modeBtn';
+    btn.textContent = m.name;
+    btn.dataset.mode = m.id;
+    btn.onclick = () => setMode(m.id);
+    modeBar.appendChild(btn);
+});
+
+function setMode(mode) {
+    currentMode = mode;
+    document.querySelectorAll('.modeBtn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+}
+
+function setZoom(val) {
+    currentZoom = parseFloat(val);
+    zoomLabel.textContent = currentZoom.toFixed(1) + 'x';
+    if (stream) {
+        const track = stream.getVideoTracks()[0];
+        if (track && track.getCapabilities().zoom) {
+            track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+        }
+    }
+}
+
+async function startCamera() {
+    document.getElementById('startScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+
+    try {
+        const constraints = {
+            video: {
+                facingMode: currentFacing,
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            },
+            audio: false
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+        setMode('photo');
+        document.querySelector('.modeBtn').classList.add('active');
+    } catch (e) {
+        alert('Camera access denied: ' + e.message);
+    }
+}
+
+async function switchCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+    await startCamera();
+}
+
+function toggleFlash() {
+    flashOn = !flashOn;
+    document.getElementById('flashBtn').style.opacity = flashOn ? '1' : '0.5';
+    if (stream) {
+        const track = stream.getVideoTracks()[0];
+        try {
+            track.applyConstraints({ advanced: [{ torch: flashOn }] });
+        } catch(e) { console.log('Flash not supported'); }
+    }
+}
+
+function processImage(imageData, width, height, mode) {
+    const data = imageData.data;
+    const len = data.length;
+
+    switch(mode) {
+        case 'hdr': {
+            for (let i = 0; i < len; i += 4) {
+                let r = data[i], g = data[i+1], b = data[i+2];
+                let fr = (r/255), fg = (g/255), fb = (b/255);
+                fr = (fr * (1 + fr)) / (fr + 1);
+                fg = (fg * (1 + fg)) / (fg + 1);
+                fb = (fb * (1 + fb)) / (fb + 1);
+                data[i] = Math.min(255, fr * 255 * 1.15 + 10);
+                data[i+1] = Math.min(255, fg * 255 * 1.15 + 10);
+                data[i+2] = Math.min(255, fb * 255 * 1.15 + 10);
+            }
+            break;
+        }
+        case 'night': {
+            for (let i = 0; i < len; i += 4) {
+                data[i] = Math.min(255, data[i] * 1.8 + 30);
+                data[i+1] = Math.min(255, data[i+1] * 1.8 + 30);
+                data[i+2] = Math.min(255, data[i+2] * 1.8 + 30);
+            }
+            const temp = new Uint8ClampedArray(data);
+            for (let y = 1; y < height-1; y++) {
+                for (let x = 1; x < width-1; x++) {
+                    const idx = (y * width + x) * 4;
+                    for (let c = 0; c < 3; c++) {
+                        let sum = 0;
+                        for (let dy = -1; dy <= 1; dy++)
+                            for (let dx = -1; dx <= 1; dx++)
+                                sum += temp[((y+dy)*width+(x+dx))*4 + c];
+                        data[idx+c] = sum / 9;
+                    }
+                }
+            }
+            break;
+        }
+        case 'portrait': {
+            const cx = width/2, cy = height/2, radius = Math.min(width,height)*0.35;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const dx = x-cx, dy = y-cy;
+                    const dist = Math.sqrt(dx*dx+dy*dy);
+                    if (dist > radius) {
+                        const factor = Math.min(1, (dist-radius)/(radius*0.6));
+                        const idx = (y*width+x)*4;
+                        data[idx] *= (1-factor*0.6);
+                        data[idx+1] *= (1-factor*0.6);
+                        data[idx+2] *= (1-factor*0.6);
+                    }
+                }
+            }
+            for (let i = 0; i < len; i += 4) {
+                const r=data[i], g=data[i+1], b=data[i+2];
+                const max=Math.max(r,g,b), min=Math.min(r,g,b);
+                if (max-min < 40 && r > 60 && g > 40) {
+                    data[i] = Math.min(255, r+8);
+                    data[i+1] = Math.min(255, g*1.05);
+                }
+            }
+            break;
+        }
+        case 'astro': {
+            for (let i = 0; i < len; i += 4) {
+                let r=data[i], g=data[i+1], b=data[i+2];
+                if (r > g+15 && r > b+25) {
+                    r*=0.7; g*=0.9;
+                }
+                data[i] = Math.min(255, r*0.9);
+                data[i+1] = Math.min(255, g*0.95);
+                data[i+2] = Math.min(255, b*1.3);
+                const lum = 0.299*data[i]+0.587*data[i+1]+0.114*data[i+2];
+                if (lum > 180) {
+                    data[i] = Math.min(255, data[i]*1.4);
+                    data[i+1] = Math.min(255, data[i+1]*1.4);
+                    data[i+2] = Math.min(255, data[i+2]*1.4);
+                }
+            }
+            break;
+        }
+        case 'zoom': {
+            const scale = 1 + (currentZoom - 1)*0.3;
+            const newW = Math.floor(width*scale), newH = Math.floor(height*scale);
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = newW; tempCanvas.height = newH;
+            const tCtx = tempCanvas.getContext('2d');
+            const tempImg = new ImageData(new Uint8ClampedArray(data), width, height);
+            tCtx.putImageData(tempImg, 0, 0);
+            const scaled = tCtx.getImageData(0,0,newW,newH);
+            for (let i = 0; i < scaled.data.length; i+=4) {
+                scaled.data[i] = Math.min(255, scaled.data[i]*1.2);
+                scaled.data[i+1] = Math.min(255, scaled.data[i+1]*1.2);
+                scaled.data[i+2] = Math.min(255, scaled.data[i+2]*1.2);
+            }
+            canvas.width = newW; canvas.height = newH;
+            ctx.putImageData(scaled, 0, 0);
+            const sx = Math.floor((newW-width)/2), sy = Math.floor((newH-height)/2);
+            const crop = ctx.getImageData(Math.max(0,sx),Math.max(0,sy),width,height);
+            canvas.width = width; canvas.height = height;
+            ctx.putImageData(crop, 0, 0);
+            return canvas.toDataURL('image/jpeg', 0.95);
+        }
+    }
+    return null;
+}
+
+function capture() {
+    const btn = document.getElementById('captureBtn');
+    btn.classList.add('capturing');
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    if (currentMode === 'zoom') {
+        const result = processImage(imageData, canvas.width, canvas.height, 'zoom');
+        if (result) {
+            showResult(result);
+            btn.classList.remove('capturing');
+            return;
+        }
+    }
+
+    processImage(imageData, canvas.width, canvas.height, currentMode);
+
+    if (currentFacing === 'user') {
+        const flipped = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const temp = new Uint8ClampedArray(flipped.data);
+        for (let y = 0; y < canvas.height; y++) {
+            for (let x = 0; x < canvas.width; x++) {
+                const srcIdx = (y * canvas.width + (canvas.width - 1 - x)) * 4;
+                const dstIdx = (y * canvas.width + x) * 4;
+                flipped.data[dstIdx] = temp[srcIdx];
+                flipped.data[dstIdx+1] = temp[srcIdx+1];
+                flipped.data[dstIdx+2] = temp[srcIdx+2];
+                flipped.data[dstIdx+3] = temp[srcIdx+3];
+            }
+        }
+        ctx.putImageData(flipped, 0, 0);
+    }
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    showResult(dataUrl);
+    btn.classList.remove('capturing');
+}
+
+function showResult(dataUrl) {
+    lastPhoto = dataUrl;
+    document.getElementById('resultImg').src = dataUrl;
+    document.getElementById('resultOverlay').classList.add('show');
+}
+
+function closeResult() {
+    document.getElementById('resultOverlay').classList.remove('show');
+}
+
+function downloadPhoto() {
+    if (!lastPhoto) return;
+    const a = document.createElement('a');
+    a.href = lastPhoto;
+    const ts = new Date().toISOString().replace(/[:.]/g,'-');
+    a.download = 'CameraPixel_' + currentMode + '_' + ts + '.jpg';
+    a.click();
+}
+
+function openGallery() {
+    // placeholder - could integrate with phone gallery
+    alert('Photos are saved only in memory. Use Download to save.');
+}
+
+document.getElementById('startBtn').onclick = startCamera;
+setMode('photo');
+</script>
+</body>
+</html>
